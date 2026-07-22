@@ -1,0 +1,186 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover, maximum-scale=1" />
+<meta name="apple-mobile-web-app-capable" content="yes" />
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
+<meta name="theme-color" content="#1565C0" />
+<title>시험정보 카메라</title>
+<link rel="manifest" href="manifest.webmanifest" />
+<link rel="apple-touch-icon" href="icon-180.png" />
+<style>
+  :root{
+    --primary:#1565C0; --primaryDark:#0D47A1; --accent:#FB8C00;
+    --bg:#F5F6F8; --card:#fff; --text:#1a1a1a; --sub:#666; --danger:#D32F2F;
+  }
+  *{box-sizing:border-box; -webkit-tap-highlight-color:transparent;}
+  html,body{margin:0; height:100%;}
+  body{font-family:-apple-system,BlinkMacSystemFont,"Apple SD Gothic Neo","Malgun Gothic",sans-serif;
+       background:var(--bg); color:var(--text); overscroll-behavior:none;}
+  .screen{display:none; min-height:100%; flex-direction:column;}
+  .screen.active{display:flex;}
+  .topbar{background:var(--primary); color:#fff; padding:14px 16px;
+          padding-top:calc(14px + env(safe-area-inset-top)); display:flex; align-items:center; gap:10px;}
+  .topbar h1{font-size:18px; margin:0; flex:1;}
+  .topbar button{background:rgba(255,255,255,.18); color:#fff; border:none; border-radius:8px;
+                 padding:8px 12px; font-size:14px;}
+  .content{flex:1; padding:14px; overflow-y:auto; -webkit-overflow-scrolling:touch;}
+  .btn{display:block; width:100%; border:none; border-radius:10px; padding:15px; font-size:16px;
+       background:var(--primary); color:#fff; margin-top:10px;}
+  .btn.accent{background:var(--accent);}
+  .btn.outline{background:#fff; color:var(--primary); border:1.5px solid var(--primary);}
+  .btn.ghost{background:transparent; color:var(--primary); padding:10px;}
+  .btn:disabled{opacity:.5;}
+  .field{margin-top:12px;}
+  .field label{display:block; font-size:13px; font-weight:700; color:var(--sub); margin-bottom:4px;}
+  .field input{width:100%; padding:13px; border:1px solid #ddd; border-radius:10px; font-size:16px; background:#fff;}
+  .card{background:var(--card); border:1px solid #e6e6e6; border-radius:12px; padding:14px; margin-top:10px;}
+  .row{display:flex; align-items:center; gap:10px;}
+  .muted{color:var(--sub); font-size:13px;}
+  .list-item{background:#fff; border:1px solid #e6e6e6; border-radius:12px; padding:14px; margin-top:10px;
+             display:flex; align-items:center; gap:10px;}
+  .list-item .grow{flex:1; min-width:0;}
+  .list-item .title{font-weight:700; font-size:16px; white-space:nowrap; overflow:hidden; text-overflow:ellipsis;}
+  .list-item .sub{color:var(--sub); font-size:13px; margin-top:2px; white-space:nowrap; overflow:hidden; text-overflow:ellipsis;}
+  .badge{background:var(--bg); color:var(--primary); font-weight:700; font-size:13px; padding:4px 10px; border-radius:20px;}
+  .iconbtn{background:none; border:none; font-size:22px; padding:6px 10px; color:var(--danger);}
+  .empty{color:var(--sub); text-align:center; margin-top:40px;}
+
+  /* Camera screen */
+  #camera{background:#000;}
+  #camWrap{position:relative; flex:1; background:#000; overflow:hidden;}
+  #video{width:100%; height:100%; object-fit:cover; display:block;}
+  #overlayCard{position:absolute; right:8px; bottom:8px; max-width:64%;
+    background:rgba(0,0,0,.7); border:1px solid rgba(255,255,255,.85); border-radius:8px;
+    padding:8px 10px; color:#fff; font-size:12px; line-height:1.35;}
+  #overlayCard .oc-title{font-weight:800; margin-bottom:3px;}
+  #overlayCard .oc-lbl{color:#FFD65C; font-weight:800;}
+  .camTop{background:#111; color:#fff; padding:10px;}
+  .seg{display:flex; gap:6px; margin-bottom:8px;}
+  .seg button{flex:1; padding:9px; border:1px solid #444; background:#000; color:#fff; border-radius:8px; font-size:14px;}
+  .seg button.on{background:var(--primary); border-color:var(--primary);}
+  .camItem{display:flex; align-items:center; gap:8px;}
+  .camItem select{flex:1; padding:9px; border-radius:8px; font-size:15px;}
+  .camItem .add{background:var(--primary); color:#fff; border:none; border-radius:8px; padding:9px 14px; font-size:18px;}
+  .camBottom{background:#111; display:flex; align-items:center; padding:12px;
+             padding-bottom:calc(12px + env(safe-area-inset-bottom));}
+  .camBottom .cnt{color:#ccc; font-size:14px; width:80px;}
+  .shutter{width:70px; height:70px; border-radius:50%; background:#E53935; border:5px solid #fff; margin:0 auto;}
+  .camBottom .done{color:#fff; background:none; border:none; font-size:15px; width:80px; text-align:right;}
+
+  /* Preview after capture */
+  #previewImg{width:100%; border-radius:10px; border:1px solid #ddd;}
+
+  /* Gallery */
+  .grid{display:grid; grid-template-columns:1fr 1fr; gap:8px;}
+  .grid .cell{background:#fff; border:1px solid #e6e6e6; border-radius:10px; padding:6px;}
+  .grid .cell img{width:100%; height:150px; object-fit:cover; border-radius:6px; background:#eee;}
+  .grid .cell .cap{font-size:12px; color:var(--sub); margin-top:4px;}
+
+  .toast{position:fixed; left:50%; top:14px; transform:translateX(-50%);
+         background:rgba(0,0,0,.8); color:#fff; padding:10px 16px; border-radius:10px; font-size:14px; z-index:50; display:none;}
+  .backdrop{position:fixed; inset:0; background:rgba(0,0,0,.4); display:none; align-items:center; justify-content:center; z-index:40; padding:24px;}
+  .modal{background:#fff; border-radius:14px; padding:18px; width:100%; max-width:360px;}
+  .modal h3{margin:0 0 10px;}
+  .spinner{border:4px solid #ddd; border-top:4px solid var(--primary); border-radius:50%; width:34px; height:34px;
+           animation:spin 1s linear infinite; margin:0 auto 10px;}
+  @keyframes spin{to{transform:rotate(360deg);}}
+</style>
+</head>
+<body>
+
+<!-- ===== HOME ===== -->
+<div id="home" class="screen active">
+  <div class="topbar"><h1>시험정보 카메라</h1>
+    <button onclick="showItems()">시험항목</button>
+  </div>
+  <div class="content">
+    <button class="btn" onclick="newReceipt()">＋ 새 접수건</button>
+    <div id="receiptList"></div>
+  </div>
+</div>
+
+<!-- ===== RECEIPT FORM ===== -->
+<div id="receipt" class="screen">
+  <div class="topbar"><button onclick="go('home')">‹ 뒤로</button><h1 id="receiptTitle">새 접수건</h1></div>
+  <div class="content">
+    <button class="btn accent" onclick="startScan()">📷 신청서 스캔해서 자동입력</button>
+    <p class="muted">스캔 후 인식된 내용을 확인하고 필요하면 고치세요. 인쇄 글자는 잘 인식되고, 손글씨는 틀릴 수 있어요.</p>
+    <div class="field"><label>접수번호</label><input id="f_receiptNo" placeholder="예: M253-26-00496" autocapitalize="characters" /></div>
+    <div class="field"><label>CSI 접수번호</label><input id="f_csiNo" placeholder="예: AC-2026-117907" autocapitalize="characters" /></div>
+    <div class="field"><label>공사명(현장명)</label><input id="f_workName" placeholder="예: 남해 서면-여수 신덕 국도 건설공사" /></div>
+    <div class="field"><label>시료명</label><input id="f_sampleName" placeholder="예: 합성섬유" /></div>
+    <div class="field"><label>비고</label><input id="f_note" placeholder="(선택)" /></div>
+    <button class="btn" onclick="saveAndShoot()">저장하고 촬영 시작</button>
+    <button class="btn outline" onclick="saveOnly()">저장만 하기</button>
+    <button id="btnGallery" class="btn ghost" style="display:none" onclick="openGallery()">이 접수건 사진 보기</button>
+  </div>
+</div>
+
+<!-- ===== CAMERA ===== -->
+<div id="camera" class="screen">
+  <div class="camTop">
+    <div class="seg" id="stageSeg">
+      <button data-stage="시험전" class="on">시험전</button>
+      <button data-stage="시험중">시험중</button>
+      <button data-stage="시험후">시험후</button>
+    </div>
+    <div class="camItem">
+      <span style="color:#FFD65C;font-weight:800">시험항목</span>
+      <select id="itemSelect"></select>
+      <button class="add" onclick="addItemInline()">＋</button>
+    </div>
+  </div>
+  <div id="camWrap">
+    <video id="video" autoplay muted playsinline></video>
+    <div id="overlayCard"></div>
+  </div>
+  <div class="camBottom">
+    <span class="cnt" id="shotCount">촬영 0장</span>
+    <button class="shutter" onclick="capture()"></button>
+    <button class="done" onclick="finishCamera()">완료</button>
+  </div>
+</div>
+
+<!-- ===== PREVIEW (after capture) ===== -->
+<div id="preview" class="screen">
+  <div class="topbar"><h1>촬영 완료</h1></div>
+  <div class="content">
+    <img id="previewImg" alt="촬영 사진" />
+    <button class="btn" onclick="sharePhoto()">사진 앱에 저장 / 공유</button>
+    <button class="btn outline" onclick="backToCamera()">계속 촬영</button>
+    <p class="muted">사진은 앱 안(이 접수건 갤러리)에 이미 저장됐어요. ‘저장 / 공유’를 누르면 폰 사진 앱에도 넣을 수 있습니다.</p>
+  </div>
+</div>
+
+<!-- ===== ITEMS ===== -->
+<div id="items" class="screen">
+  <div class="topbar"><button onclick="go('home')">‹ 뒤로</button><h1>시험항목 관리</h1></div>
+  <div class="content">
+    <div class="row">
+      <input id="newItemInput" placeholder="추가할 시험항목 (예: 밀도)" style="flex:1;padding:13px;border:1px solid #ddd;border-radius:10px;font-size:16px;" />
+      <button class="btn" style="width:auto;margin:0;padding:13px 18px" onclick="addItem()">추가</button>
+    </div>
+    <div id="itemList"></div>
+  </div>
+</div>
+
+<!-- ===== GALLERY ===== -->
+<div id="gallery" class="screen">
+  <div class="topbar"><button onclick="go('receipt')">‹ 뒤로</button><h1 id="galleryTitle">사진</h1></div>
+  <div class="content">
+    <button class="btn outline" onclick="shareAll()">사진 앱에 전체 저장 / 공유</button>
+    <div id="galleryGrid" class="grid"></div>
+  </div>
+</div>
+
+<!-- scan file input (hidden) -->
+<input id="scanInput" type="file" accept="image/*" capture="environment" style="display:none" />
+
+<div id="toast" class="toast"></div>
+<div id="busy" class="backdrop"><div class="modal" style="text-align:center"><div class="spinner"></div><div id="busyText">처리 중...</div></div></div>
+
+<script src="app.js"></script>
+</body>
+</html>
