@@ -178,6 +178,19 @@
 <!-- scan file input (hidden) -->
 <input id="scanInput" type="file" accept="image/*" capture="environment" style="display:none" />
 
+<!-- 시험항목 추가 모달 (카메라 화면용) -->
+<div id="addItemModal" class="backdrop">
+  <div class="modal">
+    <h3>시험항목 추가</h3>
+    <input id="modalItemInput" placeholder="예: 인장강도" autocapitalize="off"
+           style="width:100%;padding:13px;border:1px solid #ddd;border-radius:10px;font-size:16px;" />
+    <div class="row" style="margin-top:14px;justify-content:flex-end;gap:8px">
+      <button class="btn outline" style="width:auto;margin:0" onclick="closeAddItem()">취소</button>
+      <button class="btn" style="width:auto;margin:0" onclick="confirmAddItem()">추가</button>
+    </div>
+  </div>
+</div>
+
 <div id="toast" class="toast"></div>
 <div id="busy" class="backdrop"><div class="modal" style="text-align:center"><div class="spinner"></div><div id="busyText">처리 중...</div></div></div>
 

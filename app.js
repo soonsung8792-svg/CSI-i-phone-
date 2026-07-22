@@ -146,8 +146,17 @@ function populateItemSelect(sel){
   if(sel && DATA.testItems.includes(sel)) s.value=sel;
 }
 function addItemInline(){
-  const n=prompt('추가할 시험항목','');
-  if(n===null) return; const name=n.trim(); if(!name) return;
+  const inp=document.getElementById('modalItemInput');
+  inp.value='';
+  document.getElementById('addItemModal').style.display='flex';
+  setTimeout(()=>inp.focus(),50);
+}
+function closeAddItem(){ document.getElementById('addItemModal').style.display='none'; }
+function confirmAddItem(){
+  const inp=document.getElementById('modalItemInput');
+  const name=(inp.value||'').trim();
+  closeAddItem();
+  if(!name) return;
   if(!DATA.testItems.includes(name)){ DATA.testItems.push(name); save(); }
   populateItemSelect(name); updateOverlay();
 }
@@ -329,6 +338,7 @@ document.querySelectorAll('#stageSeg button').forEach(b=>{
 });
 document.getElementById('itemSelect').addEventListener('change', updateOverlay);
 document.getElementById('newItemInput').addEventListener('keydown', e=>{ if(e.key==='Enter') addItem(); });
+document.getElementById('modalItemInput').addEventListener('keydown', e=>{ if(e.key==='Enter') confirmAddItem(); });
 
 /* 서비스워커 등록 (오프라인/홈화면 추가용) */
 if('serviceWorker' in navigator){ navigator.serviceWorker.register('sw.js').catch(()=>{}); }
