@@ -43,6 +43,11 @@ function safe(s){ return (s||'').replace(/[\\\/:*?"<>|]/g,'-').trim(); }
 function pad(n){ return String(n).padStart(2,'0'); }
 function stamp(){ const t=new Date(); return `${t.getFullYear()}${pad(t.getMonth()+1)}${pad(t.getDate())}_${pad(t.getHours())}${pad(t.getMinutes())}${pad(t.getSeconds())}`; }
 function toast(msg){ const t=document.getElementById('toast'); t.textContent=msg; t.style.display='block'; clearTimeout(t._h); t._h=setTimeout(()=>t.style.display='none',1800); }
+function alertBox(msg){
+  document.getElementById('alertText').textContent=msg;
+  document.getElementById('alertModal').style.display='flex';
+}
+function closeAlert(){ document.getElementById('alertModal').style.display='none'; }
 function busy(text){ document.getElementById('busyText').textContent=text||'처리 중...'; document.getElementById('busy').style.display='flex'; }
 function hideBusy(){ document.getElementById('busy').style.display='none'; }
 function downloadBlob(blob,name){ const a=document.createElement('a'); a.href=URL.createObjectURL(blob); a.download=name; document.body.appendChild(a); a.click(); a.remove(); }
@@ -452,7 +457,8 @@ function applyScan(s){
 /* "치수;인장강도;비중" 또는 "치수,인장강도" 를 배열로 */
 function splitItems(text){
   if(!text) return [];
-  return text.split(/[;,\/·|]/).map(s=>s.trim()).filter(Boolean);
+  const arr=text.split(/[;,\/·|]/).map(s=>s.trim()).filter(Boolean);
+  return [...new Set(arr)];          // 같은 항목이 두 번 적혀도 한 번만
 }
 
 /* ---------- PC 연동: 엑셀/CSV 불러오기 ---------- */
@@ -475,9 +481,20 @@ document.getElementById('csvInput').addEventListener('change', async e=>{
   if(!file) return;
   try{
     busy('불러오는 중...');
+    // 엑셀 원본(.xlsx)은 압축파일이라 읽을 수 없음 → 안내
+    const head = new Uint8Array(await file.slice(0,4).arrayBuffer());
+    if(head[0]===0x50 && head[1]===0x4B){
+      alertBox('엑셀 파일(.xlsx)은 바로 읽을 수 없어요.\n\n엑셀에서 [다른 이름으로 저장] → 파일 형식을 \'CSV UTF-8(쉼표로 분리)\'로 골라 저장한 뒤, 그 파일을 올려주세요.');
+      return;
+    }
     const text = await readTextSmart(file);
     const list = parseCSV(text);
-    if(list.length===0){ toast('불러올 내용이 없습니다. 양식을 확인하세요'); return; }
+    if(list.length===0){
+      const first=(text.split('\n').find(l=>l.trim())||'').slice(0,60);
+      alertBox('접수건을 찾지 못했어요.\n\n첫 줄: '+(first||'(비어 있음)')+
+        '\n\n확인해 주세요:\n· 접수번호 칸이 채워져 있는지\n· 엑셀에서 \'CSV UTF-8\'로 저장했는지');
+      return;
+    }
     let added=0, updated=0, newItems=0;
     list.forEach(item=>{
       if(!item.receiptNo) return;
@@ -508,8 +525,23 @@ async function readTextSmart(file){
   return t.replace(/^\uFEFF/,'');
 }
 
-function parseCSV(text){
-  const rows = splitCSVRows(text);
+/* 헤더 줄을 보고 구분자 자동 감지 (쉼표 / 세미콜론 / 탭) */
+function detectDelimiter(text){
+  const line=(text.split('\n').find(l=>l.trim())||'');
+  const counts={',':0, ';':0, '\t':0};
+  let q=false;
+  for(const ch of line){
+    if(ch==='"') q=!q;
+    else if(!q && counts[ch]!==undefined) counts[ch]++;
+  }
+  let best=',', max=0;
+  for(const d of [',',';','\t']){ if(counts[d]>max){ max=counts[d]; best=d; } }
+  return max===0 ? ',' : best;
+}
+
+function parseCSV(text, delim){
+  const d = delim || detectDelimiter(text);
+  const rows = splitCSVRows(text, d);
   if(rows.length===0) return [];
   // 헤더 위치 찾기 (없으면 첫 줄부터 데이터로 간주)
   let start=0, map={receiptNo:0, csiNo:1, workName:2, sampleName:3, note:4, items:5};
@@ -538,8 +570,9 @@ function parseCSV(text){
   return out;
 }
 
-/* 따옴표(") 안의 쉼표까지 처리하는 CSV 파서 */
-function splitCSVRows(text){
+/* 따옴표(") 안의 구분자까지 처리하는 CSV 파서 */
+function splitCSVRows(text, delim){
+  const D = delim || ',';
   const rows=[]; let row=[], cell='', q=false;
   for(let i=0;i<text.length;i++){
     const ch=text[i];
@@ -548,7 +581,7 @@ function splitCSVRows(text){
       else cell+=ch;
     } else {
       if(ch==='"') q=true;
-      else if(ch===','){ row.push(cell); cell=''; }
+      else if(ch===D){ row.push(cell); cell=''; }
       else if(ch==='\n'){ row.push(cell); rows.push(row); row=[]; cell=''; }
       else if(ch==='\r'){ /* skip */ }
       else cell+=ch;

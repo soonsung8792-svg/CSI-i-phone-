@@ -218,7 +218,7 @@
 <!-- scan file input (hidden) -->
 <input id="scanInput" type="file" accept="image/*" capture="environment" style="display:none" />
 <!-- csv import input (hidden) -->
-<input id="csvInput" type="file" accept=".csv,text/csv,text/plain" style="display:none" />
+<input id="csvInput" type="file" style="display:none" />
 
 <!-- 시험항목 추가 모달 (카메라 화면용) -->
 <div id="addItemModal" class="backdrop">
@@ -229,6 +229,17 @@
     <div class="row" style="margin-top:14px;justify-content:flex-end;gap:8px">
       <button class="btn outline" style="width:auto;margin:0" onclick="closeAddItem()">취소</button>
       <button class="btn" style="width:auto;margin:0" onclick="confirmAddItem()">추가</button>
+    </div>
+  </div>
+</div>
+
+<!-- 안내창 -->
+<div id="alertModal" class="backdrop">
+  <div class="modal">
+    <h3 id="alertTitle">안내</h3>
+    <div id="alertText" style="white-space:pre-line;font-size:14px;line-height:1.5"></div>
+    <div class="row" style="margin-top:16px;justify-content:flex-end">
+      <button class="btn" style="width:auto;margin:0" onclick="closeAlert()">확인</button>
     </div>
   </div>
 </div>
