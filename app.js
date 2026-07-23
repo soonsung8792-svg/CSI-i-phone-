@@ -1,7 +1,7 @@
 'use strict';
 
 /* 앱 버전 — 화면 상단에 표시됩니다. 업데이트가 됐는지 이걸로 확인하세요. */
-const APP_VERSION = 'v10';
+const APP_VERSION = 'v11';
 
 /* ---------- 저장소 (설정/접수건: localStorage, 사진: IndexedDB) ---------- */
 const LS_KEY = 'testinfo.data.v1';
@@ -660,6 +660,16 @@ document.getElementById('itemSelect').addEventListener('change', updateOverlay);
 document.getElementById('sampleNoInput').addEventListener('input', updateOverlay);
 document.getElementById('newItemInput').addEventListener('keydown', e=>{ if(e.key==='Enter') addItem(); });
 document.getElementById('modalItemInput').addEventListener('keydown', e=>{ if(e.key==='Enter') confirmAddItem(); });
+
+/* 저장공간 보호 요청 — 브라우저가 앱 데이터를 임의로 지우지 않도록 */
+(async function(){
+  try{
+    if(navigator.storage && navigator.storage.persist){
+      const already = await navigator.storage.persisted();
+      if(!already) await navigator.storage.persist();
+    }
+  }catch(e){}
+})();
 
 /* 버전 표시 */
 (function(){ const t=document.getElementById('verTag'); if(t) t.textContent=APP_VERSION; })();
