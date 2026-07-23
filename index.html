@@ -113,7 +113,16 @@
 <!-- ===== HOME ===== -->
 <div id="home" class="screen active">
   <div class="topbar"><h1>시험정보 카메라 <span id="verTag" style="font-size:12px;font-weight:400;opacity:.85"></span></h1>
+    <button id="btnSelectMode" onclick="toggleSelectMode()">선택</button>
     <button onclick="showItems()">시험항목</button>
+  </div>
+  <div id="selectBar" style="display:none;background:#0D47A1;color:#fff;padding:10px 12px;
+       align-items:center;gap:8px">
+    <button onclick="selectAllReceipts()" style="background:rgba(255,255,255,.18);color:#fff;
+      border:none;border-radius:8px;padding:8px 12px;font-size:14px">전체 선택</button>
+    <span id="selCount" style="flex:1;font-size:14px">0개 선택</span>
+    <button onclick="askDeleteSelected()" style="background:#D32F2F;color:#fff;border:none;
+      border-radius:8px;padding:8px 14px;font-size:14px;font-weight:700">선택 삭제</button>
   </div>
   <div class="content">
     <button class="btn" onclick="newReceipt()">＋ 새 접수건</button>
@@ -122,13 +131,7 @@
       <div class="muted" style="margin-bottom:10px">
         엑셀로 접수건을 미리 입력해두고 한 번에 가져올 수 있어요.
       </div>
-      <button class="btn outline" onclick="fetchServerList()">
-        ☁️ 서버에서 목록 가져오기
-      </button>
-      <button class="btn outline" onclick="openPaste()">
-        📋 붙여넣기로 등록
-      </button>
-      <label class="btn ghost" for="csvInput">엑셀/CSV 파일 불러오기</label>
+      <label class="btn outline" for="csvInput">엑셀/CSV 파일 불러오기</label>
       <input id="csvInput" type="file" class="file-hidden" />
       <div class="muted" style="font-size:12px;margin-top:8px;line-height:1.5">
         아이폰에서 파일이 안 보이면: 카톡·메일에서 파일을 연 뒤
@@ -243,24 +246,6 @@
     <div class="row" style="margin-top:14px;justify-content:flex-end;gap:8px">
       <button class="btn outline" style="width:auto;margin:0" onclick="closeAddItem()">취소</button>
       <button class="btn" style="width:auto;margin:0" onclick="confirmAddItem()">추가</button>
-    </div>
-  </div>
-</div>
-
-<!-- 붙여넣기로 등록 -->
-<div id="pasteModal" class="backdrop">
-  <div class="modal">
-    <h3>붙여넣기로 등록</h3>
-    <div class="muted" style="font-size:13px;margin-bottom:8px">
-      엑셀에서 표를 복사한 뒤 아래 칸을 길게 눌러 <b>붙여넣기</b> 하세요.<br>
-      (첫 줄 제목은 있어도 없어도 됩니다)
-    </div>
-    <textarea id="pasteArea" rows="7" placeholder="접수번호  CSI접수번호  공사명  시료명  비고  시험항목"
-      style="width:100%;padding:12px;border:1px solid #ddd;border-radius:10px;font-size:14px;
-             font-family:monospace;-webkit-user-select:text;user-select:text"></textarea>
-    <div class="row" style="margin-top:14px;justify-content:flex-end;gap:8px">
-      <button class="btn outline" style="width:auto;margin:0" onclick="closePaste()">취소</button>
-      <button class="btn" style="width:auto;margin:0" onclick="applyPaste()">등록</button>
     </div>
   </div>
 </div>

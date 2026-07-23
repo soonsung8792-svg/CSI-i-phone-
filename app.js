@@ -1,7 +1,7 @@
 'use strict';
 
 /* 앱 버전 — 화면 상단에 표시됩니다. 업데이트가 됐는지 이걸로 확인하세요. */
-const APP_VERSION = 'v13';
+const APP_VERSION = 'v14';
 
 /* ---------- 저장소 (설정/접수건: localStorage, 사진: IndexedDB) ---------- */
 const LS_KEY = 'testinfo.data.v1';
@@ -66,47 +66,131 @@ function idRows(stage,item,r,sampleNo){
 }
 
 /* ---------- HOME ---------- */
+let selectMode=false;
+const selectedIds=new Set();
+
+function toggleSelectMode(){
+  selectMode=!selectMode;
+  selectedIds.clear();
+  document.getElementById('btnSelectMode').textContent = selectMode ? '취소' : '선택';
+  document.getElementById('selectBar').style.display = selectMode ? 'flex' : 'none';
+  renderHome();
+}
+function updateSelCount(){
+  document.getElementById('selCount').textContent = `${selectedIds.size}개 선택`;
+}
+function selectAllReceipts(){
+  if(selectedIds.size===DATA.receipts.length) selectedIds.clear();
+  else DATA.receipts.forEach(r=>selectedIds.add(r.id));
+  renderHome();
+}
+
 function renderHome(){
   const box=document.getElementById('receiptList'); box.innerHTML='';
-  if(DATA.receipts.length===0){ box.innerHTML='<div class="empty">아직 접수건이 없습니다.<br>‘＋ 새 접수건’으로 시작하세요.</div>'; return; }
+  if(DATA.receipts.length===0){
+    box.innerHTML='<div class="empty">아직 접수건이 없습니다.<br>‘＋ 새 접수건’으로 시작하세요.</div>';
+    if(selectMode) updateSelCount();
+    return;
+  }
   DATA.receipts.forEach(r=>{
     const sub = (r.csiNo?('CSI '+r.csiNo+'  '):'') + (r.sampleName||r.workName||'');
     const el=document.createElement('div'); el.className='list-item';
-    el.innerHTML=`<div class="grow"><div class="title">${esc(r.receiptNo||'(접수번호 없음)')}</div>
-      <div class="sub">${esc(sub)}</div></div><span class="badge">${r.count||0}장</span>`;
-    el.querySelector('.grow').onclick=()=>editReceipt(r.id);
-    el.querySelector('.badge').onclick=()=>editReceipt(r.id);
-    const del=document.createElement('button');
-    del.className='iconbtn'; del.textContent='🗑';
-    del.onclick=(e)=>{ e.stopPropagation(); askDeleteReceipt(r.id); };
-    el.appendChild(del);
+
+    if(selectMode){
+      const cb=document.createElement('input');
+      cb.type='checkbox'; cb.checked=selectedIds.has(r.id);
+      cb.style.cssText='width:22px;height:22px;flex:0 0 auto';
+      cb.onclick=(e)=>{
+        e.stopPropagation();
+        if(cb.checked) selectedIds.add(r.id); else selectedIds.delete(r.id);
+        updateSelCount();
+      };
+      el.appendChild(cb);
+    }
+
+    const info=document.createElement('div');
+    info.className='grow';
+    info.innerHTML=`<div class="title">${esc(r.receiptNo||'(접수번호 없음)')}</div>
+      <div class="sub">${esc(sub)}</div>`;
+    el.appendChild(info);
+
+    const badge=document.createElement('span');
+    badge.className='badge'; badge.textContent=(r.count||0)+'장';
+    el.appendChild(badge);
+
+    if(selectMode){
+      // 선택 모드에서는 줄 전체를 눌러도 체크가 토글됨
+      el.onclick=()=>{
+        const cb=el.querySelector('input[type=checkbox]');
+        cb.checked=!cb.checked;
+        if(cb.checked) selectedIds.add(r.id); else selectedIds.delete(r.id);
+        updateSelCount();
+      };
+    } else {
+      info.onclick=()=>editReceipt(r.id);
+      badge.onclick=()=>editReceipt(r.id);
+      const del=document.createElement('button');
+      del.className='iconbtn'; del.textContent='🗑';
+      del.onclick=(e)=>{ e.stopPropagation(); askDeleteReceipt(r.id); };
+      el.appendChild(del);
+    }
     box.appendChild(el);
   });
+  if(selectMode) updateSelCount();
 }
 function esc(s){ return (s||'').replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c])); }
 
 /* ---------- 접수건 삭제 ---------- */
-let _delId=null;
+let _delId=null;        // 한 건 삭제용
+let _delBulk=false;     // 선택 삭제(여러 건) 여부
+
+/* 선택한 접수건 여러 건 삭제 */
+function askDeleteSelected(){
+  if(selectedIds.size===0){ toast('선택된 접수건이 없습니다'); return; }
+  const list=DATA.receipts.filter(r=>selectedIds.has(r.id));
+  const photoTotal=list.reduce((a,r)=>a+(r.count||0),0);
+  const names=list.slice(0,3).map(r=>r.receiptNo||'(번호없음)').join(', ')
+              + (list.length>3 ? ` 외 ${list.length-3}건` : '');
+  _delBulk=true; _delId=null;
+  document.getElementById('delText').innerHTML =
+    `선택한 <b>${list.length}건</b>을 삭제할까요?<br>` +
+    `<span style="color:#666">${esc(names)}</span><br>` +
+    `저장된 사진 <b>${photoTotal}장</b>도 앱에서 함께 지워집니다.<br>` +
+    `<span style="color:#666">(이미 ‘사진 앱에 저장’한 사진은 폰에 그대로 남아요)</span>`;
+  document.getElementById('delModal').style.display='flex';
+}
 function askDeleteReceipt(id){
   const r=getReceipt(id); if(!r) return;
-  _delId=id;
+  _delId=id; _delBulk=false;
   document.getElementById('delText').innerHTML =
     `<b>${esc(r.receiptNo||'(접수번호 없음)')}</b> 접수건을 삭제할까요?<br>` +
     `이 접수건에 저장된 사진 <b>${r.count||0}장</b>도 앱에서 함께 지워집니다.<br>` +
     `<span style="color:#666">(이미 ‘사진 앱에 저장’한 사진은 폰에 그대로 남아요)</span>`;
   document.getElementById('delModal').style.display='flex';
 }
-function closeDelete(){ document.getElementById('delModal').style.display='none'; _delId=null; }
+function closeDelete(){ document.getElementById('delModal').style.display='none'; _delId=null; _delBulk=false; }
 async function confirmDeleteReceipt(){
-  const id=_delId; closeDelete();
-  if(!id) return;
+  const bulk=_delBulk;
+  const ids = bulk ? [...selectedIds] : (_delId ? [_delId] : []);
+  closeDelete();
+  if(ids.length===0) return;
   try{
-    await idbDeleteByReceipt(id);                 // 사진 정리
-    DATA.receipts = DATA.receipts.filter(x=>x.id!==id);
-    if(currentReceiptId===id) currentReceiptId=null;
+    busy('삭제 중...');
+    for(const id of ids){
+      await idbDeleteByReceipt(id);               // 사진 정리
+      DATA.receipts = DATA.receipts.filter(x=>x.id!==id);
+      if(currentReceiptId===id) currentReceiptId=null;
+    }
+    selectedIds.clear();
+    if(bulk && selectMode){                       // 선택 모드 해제
+      selectMode=false;
+      document.getElementById('btnSelectMode').textContent='선택';
+      document.getElementById('selectBar').style.display='none';
+    }
     save(); renderHome(); go('home');
-    toast('삭제되었습니다');
+    toast(`${ids.length}건 삭제되었습니다`);
   }catch(e){ toast('삭제 실패: '+(e.message||e)); }
+  finally{ hideBusy(); }
 }
 async function idbDeleteByReceipt(rid){
   const db=await idb();
@@ -539,35 +623,6 @@ function applyCsvText(text, sourceLabel){
   if(newItems>0) msg+=`, 시험항목 ${newItems}개`;
   toast(msg.trim());
   return true;
-}
-
-/* ① 서버(같은 주소에 올려둔 receipts.csv)에서 목록 가져오기 */
-async function fetchServerList(){
-  try{
-    busy('서버에서 목록을 가져오는 중...');
-    const res = await fetch('receipts.csv?t='+Date.now(), {cache:'no-store'});
-    if(!res.ok) throw new Error('receipts.csv 를 찾을 수 없습니다 (' + res.status + ')');
-    const buf = await res.arrayBuffer();
-    let text = new TextDecoder('utf-8').decode(buf);
-    if(text.includes('\uFFFD')){ try{ text = new TextDecoder('euc-kr').decode(buf); }catch(e){} }
-    applyCsvText(text.replace(/^\uFEFF/,''), '서버에서 불러왔어요 —');
-  }catch(e){
-    alertBox('서버에서 목록을 가져오지 못했어요.\n\n' + (e.message||e) +
-      '\n\nPC에서 GitHub 저장소에 receipts.csv 파일을 올려두면 여기서 바로 가져올 수 있어요.');
-  }finally{ hideBusy(); }
-}
-
-/* ② 붙여넣기로 등록 */
-function openPaste(){
-  document.getElementById('pasteArea').value='';
-  document.getElementById('pasteModal').style.display='flex';
-}
-function closePaste(){ document.getElementById('pasteModal').style.display='none'; }
-function applyPaste(){
-  const text=document.getElementById('pasteArea').value||'';
-  if(!text.trim()){ toast('붙여넣은 내용이 없습니다'); return; }
-  closePaste();
-  applyCsvText(text, '붙여넣기 —');
 }
 
 /* "치수;인장강도;비중" 또는 "치수,인장강도" 를 배열로 */

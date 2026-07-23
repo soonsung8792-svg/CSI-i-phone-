@@ -1,4 +1,4 @@
-const CACHE = 'testinfo-v13';
+const CACHE = 'testinfo-v14';
 const ASSETS = ['./', 'index.html', 'app.js', 'manifest.webmanifest', 'icon-180.png', 'icon-192.png', 'icon-512.png'];
 
 self.addEventListener('install', e => {
