@@ -1,7 +1,7 @@
 'use strict';
 
 /* 앱 버전 — 화면 상단에 표시됩니다. 업데이트가 됐는지 이걸로 확인하세요. */
-const APP_VERSION = 'v11';
+const APP_VERSION = 'v13';
 
 /* ---------- 저장소 (설정/접수건: localStorage, 사진: IndexedDB) ---------- */
 const LS_KEY = 'testinfo.data.v1';
@@ -459,7 +459,7 @@ async function shareAll(){
 
 /* ---------- 신청서 스캔 (Tesseract.js) ---------- */
 document.getElementById('scanInput').addEventListener('change', handleScanFile);
-function startScan(){ const inp=document.getElementById('scanInput'); inp.value=''; inp.click(); }
+/* 신청서 스캔 버튼은 label 로 파일창을 열므로 별도 함수 불필요 */
 let _tesseractReady=false;
 function ensureTesseract(){
   return new Promise((res,rej)=>{
@@ -515,6 +515,61 @@ function applyScan(s){
   if(s.note) document.getElementById('f_note').value=s.note;
 }
 
+/* CSV 텍스트를 받아 접수건 목록에 반영 (파일/서버/붙여넣기 공통) */
+function applyCsvText(text, sourceLabel){
+  const list = parseCSV(text);
+  if(list.length===0){
+    const first=(text.split('\n').find(l=>l.trim())||'').slice(0,60);
+    alertBox('접수건을 찾지 못했어요.\n\n첫 줄: '+(first||'(비어 있음)')+
+      '\n\n확인해 주세요:\n· 접수번호 칸이 채워져 있는지\n· 열 순서가 접수번호,CSI,공사명,시료명,비고,시험항목 인지');
+    return false;
+  }
+  let added=0, updated=0, newItems=0;
+  list.forEach(item=>{
+    if(!item.receiptNo) return;
+    (item.items||[]).forEach(n=>{
+      if(!DATA.testItems.includes(n)){ DATA.testItems.push(n); newItems++; }
+    });
+    const ex = DATA.receipts.find(x=>x.receiptNo===item.receiptNo);
+    if(ex){ Object.assign(ex,item); updated++; }
+    else { DATA.receipts.unshift({ id:uid(), ...item, count:0 }); added++; }
+  });
+  save(); renderHome();
+  let msg=`${sourceLabel||''} 새로 ${added}건, 갱신 ${updated}건`;
+  if(newItems>0) msg+=`, 시험항목 ${newItems}개`;
+  toast(msg.trim());
+  return true;
+}
+
+/* ① 서버(같은 주소에 올려둔 receipts.csv)에서 목록 가져오기 */
+async function fetchServerList(){
+  try{
+    busy('서버에서 목록을 가져오는 중...');
+    const res = await fetch('receipts.csv?t='+Date.now(), {cache:'no-store'});
+    if(!res.ok) throw new Error('receipts.csv 를 찾을 수 없습니다 (' + res.status + ')');
+    const buf = await res.arrayBuffer();
+    let text = new TextDecoder('utf-8').decode(buf);
+    if(text.includes('\uFFFD')){ try{ text = new TextDecoder('euc-kr').decode(buf); }catch(e){} }
+    applyCsvText(text.replace(/^\uFEFF/,''), '서버에서 불러왔어요 —');
+  }catch(e){
+    alertBox('서버에서 목록을 가져오지 못했어요.\n\n' + (e.message||e) +
+      '\n\nPC에서 GitHub 저장소에 receipts.csv 파일을 올려두면 여기서 바로 가져올 수 있어요.');
+  }finally{ hideBusy(); }
+}
+
+/* ② 붙여넣기로 등록 */
+function openPaste(){
+  document.getElementById('pasteArea').value='';
+  document.getElementById('pasteModal').style.display='flex';
+}
+function closePaste(){ document.getElementById('pasteModal').style.display='none'; }
+function applyPaste(){
+  const text=document.getElementById('pasteArea').value||'';
+  if(!text.trim()){ toast('붙여넣은 내용이 없습니다'); return; }
+  closePaste();
+  applyCsvText(text, '붙여넣기 —');
+}
+
 /* "치수;인장강도;비중" 또는 "치수,인장강도" 를 배열로 */
 function splitItems(text){
   if(!text) return [];
@@ -539,40 +594,19 @@ function downloadTemplate(){
 document.getElementById('csvInput').addEventListener('change', async e=>{
   const file = e.target.files && e.target.files[0];
   e.target.value='';
-  if(!file) return;
+  if(!file){ toast('파일이 선택되지 않았습니다'); return; }
+  if(file.size===0){ alertBox('선택한 파일이 비어 있어요.\n\n파일이 완전히 내려받아졌는지 확인해 주세요.'); return; }
   try{
     busy('불러오는 중...');
-    // 엑셀 원본(.xlsx)은 압축파일이라 읽을 수 없음 → 안내
     const head = new Uint8Array(await file.slice(0,4).arrayBuffer());
     if(head[0]===0x50 && head[1]===0x4B){
-      alertBox('엑셀 파일(.xlsx)은 바로 읽을 수 없어요.\n\n엑셀에서 [다른 이름으로 저장] → 파일 형식을 \'CSV UTF-8(쉼표로 분리)\'로 골라 저장한 뒤, 그 파일을 올려주세요.');
+      alertBox('엑셀 파일(.xlsx)은 바로 읽을 수 없어요.\n\n엑셀에서 [다른 이름으로 저장] → \'CSV\'로 저장한 파일을 올리거나,\n\'📋 붙여넣기로 등록\'을 이용해 보세요.');
       return;
     }
     const text = await readTextSmart(file);
-    const list = parseCSV(text);
-    if(list.length===0){
-      const first=(text.split('\n').find(l=>l.trim())||'').slice(0,60);
-      alertBox('접수건을 찾지 못했어요.\n\n첫 줄: '+(first||'(비어 있음)')+
-        '\n\n확인해 주세요:\n· 접수번호 칸이 채워져 있는지\n· 엑셀에서 \'CSV UTF-8\'로 저장했는지');
-      return;
-    }
-    let added=0, updated=0, newItems=0;
-    list.forEach(item=>{
-      if(!item.receiptNo) return;
-      // 시험항목은 전체 목록(재사용 풀)에도 모아둠
-      (item.items||[]).forEach(n=>{
-        if(!DATA.testItems.includes(n)){ DATA.testItems.push(n); newItems++; }
-      });
-      const ex = DATA.receipts.find(x=>x.receiptNo===item.receiptNo);
-      if(ex){ Object.assign(ex,item); updated++; }
-      else { DATA.receipts.unshift({ id:uid(), ...item, count:0 }); added++; }
-    });
-    save(); renderHome();
-    let msg=`불러오기 완료 — 새로 ${added}건, 갱신 ${updated}건`;
-    if(newItems>0) msg+=`, 시험항목 ${newItems}개`;
-    toast(msg);
+    applyCsvText(text, '파일에서 불러왔어요 —');
   }catch(err){
-    toast('불러오기 실패: '+(err.message||err));
+    alertBox('불러오기 실패: '+(err.message||err));
   }finally{ hideBusy(); }
 });
 
