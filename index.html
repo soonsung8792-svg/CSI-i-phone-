@@ -107,7 +107,7 @@
 
 <!-- ===== HOME ===== -->
 <div id="home" class="screen active">
-  <div class="topbar"><h1>시험정보 카메라</h1>
+  <div class="topbar"><h1>시험정보 카메라 <span id="verTag" style="font-size:12px;font-weight:400;opacity:.85"></span></h1>
     <button onclick="showItems()">시험항목</button>
   </div>
   <div class="content">
@@ -229,6 +229,21 @@
     <div class="row" style="margin-top:14px;justify-content:flex-end;gap:8px">
       <button class="btn outline" style="width:auto;margin:0" onclick="closeAddItem()">취소</button>
       <button class="btn" style="width:auto;margin:0" onclick="confirmAddItem()">추가</button>
+    </div>
+  </div>
+</div>
+
+<!-- 촬영 마칠 때 한 번에 저장 -->
+<div id="saveAllModal" class="backdrop">
+  <div class="modal">
+    <h3>사진 앱에 저장</h3>
+    <div id="saveAllText" style="font-size:15px"></div>
+    <div class="muted" style="margin-top:8px;font-size:13px">
+      저장창이 뜨면 <b>‘이미지 저장’</b>을 누르면 전부 한 번에 저장됩니다.
+    </div>
+    <div class="row" style="margin-top:16px;justify-content:flex-end;gap:8px">
+      <button class="btn outline" style="width:auto;margin:0" onclick="closeSaveAll()">나중에</button>
+      <button class="btn" style="width:auto;margin:0" onclick="saveAllSession()">저장</button>
     </div>
   </div>
 </div>

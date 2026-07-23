@@ -1,5 +1,8 @@
 'use strict';
 
+/* 앱 버전 — 화면 상단에 표시됩니다. 업데이트가 됐는지 이걸로 확인하세요. */
+const APP_VERSION = 'v10';
+
 /* ---------- 저장소 (설정/접수건: localStorage, 사진: IndexedDB) ---------- */
 const LS_KEY = 'testinfo.data.v1';
 let DATA = load();
@@ -216,8 +219,10 @@ function confirmAddItem(){
   save();
   populateItemSelect(name); updateOverlay();
 }
+let _sessionShots=[];          // 이번 촬영에서 찍은 사진들 (한 번에 저장용)
 async function enterCamera(){
   go('camera');
+  _sessionShots=[];
   populateItemSelect(document.getElementById('itemSelect').value);
   updateShotCount(); updateOverlay();
   await startCamera();
@@ -232,8 +237,40 @@ async function startCamera(){
   }
 }
 function stopCamera(){ if(stream){ stream.getTracks().forEach(t=>t.stop()); stream=null; } }
-function finishCamera(){ renderHome(); go('home'); }
-function updateShotCount(){ const r=getReceipt(currentReceiptId); document.getElementById('shotCount').textContent='촬영 '+((r&&r.count)||0)+'장'; }
+function finishCamera(){
+  if(_sessionShots.length>0){
+    document.getElementById('saveAllText').textContent =
+      `이번에 촬영한 ${_sessionShots.length}장을 폰 사진 앱에 저장할까요?`;
+    document.getElementById('saveAllModal').style.display='flex';
+    return;
+  }
+  renderHome(); go('home');
+}
+function closeSaveAll(){
+  document.getElementById('saveAllModal').style.display='none';
+  _sessionShots=[]; renderHome(); go('home');
+}
+async function saveAllSession(){
+  const shots=_sessionShots.slice();
+  document.getElementById('saveAllModal').style.display='none';
+  try{
+    const files=shots.map(x=>new File([x.blob], x.name, {type:'image/jpeg'}));
+    if(navigator.canShare && navigator.canShare({files})){
+      await navigator.share({files});           // 여기서 '이미지 저장'을 누르면 전부 저장됨
+    } else {
+      shots.forEach(x=>downloadBlob(x.blob, x.name));
+    }
+  }catch(e){ /* 사용자가 취소한 경우 */ }
+  _sessionShots=[]; renderHome(); go('home');
+}
+function updateShotCount(){
+  const r=getReceipt(currentReceiptId);
+  const total=(r&&r.count)||0;
+  const el=document.getElementById('shotCount');
+  el.innerHTML = _sessionShots.length>0
+    ? `촬영 ${total}장<br><span style="color:#FFD65C">미저장 ${_sessionShots.length}장</span>`
+    : `촬영 ${total}장`;
+}
 function currentSampleNo(){
   const v=(document.getElementById('sampleNoInput').value||'').trim();
   return v || '#1';
@@ -336,10 +373,14 @@ async function capture(){
     const blob=await new Promise(res=>c.toBlob(res,'image/jpeg',0.95));
     // 파일명: 시료번호_시험항목_시험단계  (예: #1_인장강도_시험전)
     const name=`${safe(sampleNo)}_${safe(item)}_${stage}.jpg`;
-    await idbPut({ id:uid(), receiptId:r.id, stage, item, sampleNo, time:Date.now(), blob, name });
+    // iOS 사파리는 IndexedDB 에 Blob 을 넣으면 앱 재시작 후 데이터가 사라지는 문제가 있어
+    // ArrayBuffer 로 저장하고, 읽을 때 다시 Blob 으로 만든다.
+    const buf = await blob.arrayBuffer();
+    await idbPut({ id:uid(), receiptId:r.id, stage, item, sampleNo, time:Date.now(), buf, name });
     r.count=(r.count||0)+1; save();
 
     lastBlob=blob; lastName=name;
+    _sessionShots.push({ blob, name });
     document.getElementById('previewImg').src=URL.createObjectURL(blob);
     document.getElementById('lastShot').src=URL.createObjectURL(blob);
     document.getElementById('lastShotWrap').style.display='block';
@@ -364,6 +405,13 @@ async function sharePhoto(){
 }
 async function backToCamera(){ go('camera'); if(!stream) await startCamera(); updateOverlay(); }
 
+/* 저장된 사진 레코드를 Blob 으로 복원 (구버전 blob 레코드도 지원) */
+function photoBlob(p){
+  if(p.buf) return new Blob([p.buf], {type:'image/jpeg'});
+  if(p.blob instanceof Blob && p.blob.size>0) return p.blob;
+  return null;
+}
+
 /* ---------- GALLERY ---------- */
 async function openGallery(){
   const r=getReceipt(currentReceiptId); if(!r) return;
@@ -375,25 +423,38 @@ async function openGallery(){
   _galleryPhotos=photos;
   photos.forEach(p=>{
     const cell=document.createElement('div'); cell.className='cell';
-    const url=URL.createObjectURL(p.blob);
+    const b=photoBlob(p);
     const d=new Date(p.time);
-    cell.innerHTML=`<img src="${url}" /><div class="cap">${esc(p.sampleNo||'')} ${esc(p.stage)} · ${esc(p.item)}<br>${pad(d.getMonth()+1)}-${pad(d.getDate())} ${pad(d.getHours())}:${pad(d.getMinutes())}</div>`;
-    cell.querySelector('img').onclick=()=>shareOne(p);
+    const cap=`${esc(p.sampleNo||'')} ${esc(p.stage)} · ${esc(p.item)}<br>${pad(d.getMonth()+1)}-${pad(d.getDate())} ${pad(d.getHours())}:${pad(d.getMinutes())}`;
+    if(b){
+      const url=URL.createObjectURL(b);
+      cell.innerHTML=`<img src="${url}" /><div class="cap">${cap}</div>`;
+      cell.querySelector('img').onclick=()=>shareOne(p);
+    } else {
+      // 예전 버전에서 저장돼 데이터가 사라진 사진
+      cell.innerHTML=`<div style="height:150px;display:flex;align-items:center;justify-content:center;
+        background:#f0f0f0;border-radius:6px;color:#999;font-size:12px;text-align:center;padding:8px">
+        예전 버전에서 저장된 사진이라<br>불러올 수 없어요</div><div class="cap">${cap}</div>`;
+    }
     grid.appendChild(cell);
   });
 }
 let _galleryPhotos=[];
 async function shareOne(p){
-  const file=new File([p.blob],p.name,{type:'image/jpeg'});
+  const b=photoBlob(p);
+  if(!b){ toast('사진 데이터를 찾을 수 없습니다'); return; }
+  const file=new File([b],p.name,{type:'image/jpeg'});
   if(navigator.canShare && navigator.canShare({files:[file]})){ try{ await navigator.share({files:[file]}); }catch(e){} }
-  else downloadBlob(p.blob,p.name);
+  else downloadBlob(b,p.name);
 }
 async function shareAll(){
   if(_galleryPhotos.length===0){ toast('저장할 사진이 없습니다'); return; }
-  const files=_galleryPhotos.map(p=>new File([p.blob],p.name,{type:'image/jpeg'}));
+  const valid=_galleryPhotos.filter(p=>photoBlob(p));
+  if(valid.length===0){ toast('저장된 사진 데이터가 없습니다'); return; }
+  const files=valid.map(p=>new File([photoBlob(p)],p.name,{type:'image/jpeg'}));
   if(navigator.canShare && navigator.canShare({files})){ try{ await navigator.share({files}); return; }catch(e){} }
   // 폴백: 하나씩 다운로드
-  _galleryPhotos.forEach(p=>downloadBlob(p.blob,p.name));
+  valid.forEach(p=>downloadBlob(photoBlob(p),p.name));
 }
 
 /* ---------- 신청서 스캔 (Tesseract.js) ---------- */
@@ -600,8 +661,15 @@ document.getElementById('sampleNoInput').addEventListener('input', updateOverlay
 document.getElementById('newItemInput').addEventListener('keydown', e=>{ if(e.key==='Enter') addItem(); });
 document.getElementById('modalItemInput').addEventListener('keydown', e=>{ if(e.key==='Enter') confirmAddItem(); });
 
-/* 서비스워커 등록 (오프라인/홈화면 추가용) */
-if('serviceWorker' in navigator){ navigator.serviceWorker.register('sw.js').catch(()=>{}); }
+/* 버전 표시 */
+(function(){ const t=document.getElementById('verTag'); if(t) t.textContent=APP_VERSION; })();
+
+/* 서비스워커 등록 + 업데이트 확인 */
+if('serviceWorker' in navigator){
+  navigator.serviceWorker.register('sw.js').then(reg=>{
+    reg.update().catch(()=>{});                 // 열 때마다 새 버전 확인
+  }).catch(()=>{});
+}
 
 /* 시작 */
 renderHome();
