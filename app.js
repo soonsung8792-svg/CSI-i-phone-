@@ -48,14 +48,12 @@ function hideBusy(){ document.getElementById('busy').style.display='none'; }
 function downloadBlob(blob,name){ const a=document.createElement('a'); a.href=URL.createObjectURL(blob); a.download=name; document.body.appendChild(a); a.click(); a.remove(); }
 
 /* ---------- 시험정보 표 내용 ---------- */
-function idRows(stage,item,r){
-  const t=new Date();
-  const dt=`${t.getFullYear()}-${pad(t.getMonth()+1)}-${pad(t.getDate())} ${pad(t.getHours())}:${pad(t.getMinutes())}`;
+function idRows(stage,item,r,sampleNo){
   return [
-    ['시험단계',stage||''],['시험항목',item||''],
+    ['시험단계',stage||''],['시험항목',item||''],['시료번호',sampleNo||''],
     ['접수번호',r?r.receiptNo:''],['CSI접수번호',r?r.csiNo:''],
     ['공사명',r?r.workName:''],['시료명',r?r.sampleName:''],
-    ['비고',r?r.note:''],['일시',dt]
+    ['비고',r?r.note:'']
   ];
 }
 
@@ -178,9 +176,26 @@ async function startCamera(){
 function stopCamera(){ if(stream){ stream.getTracks().forEach(t=>t.stop()); stream=null; } }
 function finishCamera(){ renderHome(); go('home'); }
 function updateShotCount(){ const r=getReceipt(currentReceiptId); document.getElementById('shotCount').textContent='촬영 '+((r&&r.count)||0)+'장'; }
+function currentSampleNo(){
+  const v=(document.getElementById('sampleNoInput').value||'').trim();
+  return v || '#1';
+}
+function stepSample(delta){
+  const inp=document.getElementById('sampleNoInput');
+  const cur=(inp.value||'#1').trim();
+  const m=cur.match(/^(\D*)(\d+)(\D*)$/);      // 숫자 부분만 증감 (#1 → #2)
+  if(m){
+    let n=parseInt(m[2],10)+delta;
+    if(n<1) n=1;
+    inp.value=`${m[1]}${n}${m[3]}`;
+  } else {
+    inp.value='#1';
+  }
+  updateOverlay();
+}
 function updateOverlay(){
   const r=getReceipt(currentReceiptId);
-  const rows=idRows(currentStage(), document.getElementById('itemSelect').value||'', r);
+  const rows=idRows(currentStage(), document.getElementById('itemSelect').value||'', r, currentSampleNo());
   let html='<div class="oc-title">시험정보</div>';
   rows.forEach(([l,v])=>{ html+=`<div><span class="oc-lbl">${l} : </span>${esc(v||'-')}</div>`; });
   document.getElementById('overlayCard').innerHTML=html;
@@ -216,23 +231,72 @@ function drawCard(ctx,w,h,title,rows,factor){
 }
 function roundRect(ctx,x,y,w,h,r){ ctx.beginPath(); ctx.moveTo(x+r,y); ctx.arcTo(x+w,y,x+w,y+h,r); ctx.arcTo(x+w,y+h,x,y+h,r); ctx.arcTo(x,y+h,x,y,r); ctx.arcTo(x,y,x+w,y,r); ctx.closePath(); }
 
-let lastBlob=null, lastName='';
+let lastBlob=null, lastName='', _capturing=false;
+
+/* 촬영 피드백: 화면 플래시 + 셔터음 + 진동 */
+function flashScreen(){
+  const f=document.getElementById('flash');
+  f.classList.remove('on'); void f.offsetWidth; f.classList.add('on');
+}
+function beep(){
+  try{
+    const AC=window.AudioContext||window.webkitAudioContext; if(!AC) return;
+    const ctx=new AC(); const o=ctx.createOscillator(); const g=ctx.createGain();
+    o.connect(g); g.connect(ctx.destination);
+    o.type='square'; o.frequency.value=1150;
+    g.gain.setValueAtTime(0.12, ctx.currentTime);
+    g.gain.exponentialRampToValueAtTime(0.0001, ctx.currentTime+0.11);
+    o.start(); o.stop(ctx.currentTime+0.12);
+    setTimeout(()=>ctx.close(), 350);
+  }catch(e){}
+}
+function buzz(ms){ try{ if(navigator.vibrate) navigator.vibrate(ms||60); }catch(e){} }
+function showSaved(){
+  const b=document.getElementById('savedBadge');
+  b.classList.remove('show'); void b.offsetWidth; b.classList.add('show');
+  setTimeout(()=>b.classList.remove('show'), 950);
+}
+
 async function capture(){
+  if(_capturing) return;                        // 중복 촬영 방지
   const v=document.getElementById('video'); const w=v.videoWidth, h=v.videoHeight;
   if(!w||!h){ toast('카메라 준비 중입니다...'); return; }
-  const c=document.createElement('canvas'); c.width=w; c.height=h;
-  const ctx=c.getContext('2d'); ctx.drawImage(v,0,0,w,h);
-  const stage=currentStage(); const item=document.getElementById('itemSelect').value||'';
-  const r=getReceipt(currentReceiptId);
-  drawCard(ctx,w,h,'시험정보', idRows(stage,item,r), 0.024);
-  const blob=await new Promise(res=>c.toBlob(res,'image/jpeg',0.95));
-  const name=`${safe(r.receiptNo||'접수미지정')}_${stage}_${safe(item)}_${stamp()}.jpg`;
-  await idbPut({ id:uid(), receiptId:r.id, stage, item, time:Date.now(), blob, name });
-  r.count=(r.count||0)+1; save();
-  lastBlob=blob; lastName=name;
-  const img=document.getElementById('previewImg'); img.src=URL.createObjectURL(blob);
-  updateShotCount(); go('preview');
+
+  const btn=document.getElementById('shutterBtn');
+  _capturing=true;
+  btn.classList.add('press');
+  flashScreen(); beep(); buzz(60);
+  setTimeout(()=>{ btn.classList.remove('press'); btn.classList.add('busy'); }, 120);
+
+  try{
+    const c=document.createElement('canvas'); c.width=w; c.height=h;
+    const ctx=c.getContext('2d'); ctx.drawImage(v,0,0,w,h);
+    const stage=currentStage(); const item=document.getElementById('itemSelect').value||'';
+    const sampleNo=currentSampleNo();
+    const r=getReceipt(currentReceiptId);
+    drawCard(ctx,w,h,'시험정보', idRows(stage,item,r,sampleNo), 0.024);
+    const blob=await new Promise(res=>c.toBlob(res,'image/jpeg',0.95));
+    // 파일명: 시료번호_시험항목_시험단계  (예: #1_인장강도_시험전)
+    const name=`${safe(sampleNo)}_${safe(item)}_${stage}.jpg`;
+    await idbPut({ id:uid(), receiptId:r.id, stage, item, sampleNo, time:Date.now(), blob, name });
+    r.count=(r.count||0)+1; save();
+
+    lastBlob=blob; lastName=name;
+    document.getElementById('previewImg').src=URL.createObjectURL(blob);
+    document.getElementById('lastShot').src=URL.createObjectURL(blob);
+    document.getElementById('lastShotWrap').style.display='block';
+
+    updateShotCount();
+    showSaved();                                 // 화면 가운데 "✅ 저장됨"
+    buzz([40,60,40]);
+  }catch(e){
+    toast('저장 실패: '+(e.message||e));
+  }finally{
+    _capturing=false;
+    document.getElementById('shutterBtn').classList.remove('busy','press');
+  }
 }
+function openLastShot(){ if(lastBlob) go('preview'); }
 async function sharePhoto(){
   if(!lastBlob) return;
   const file=new File([lastBlob],lastName,{type:'image/jpeg'});
@@ -255,7 +319,7 @@ async function openGallery(){
     const cell=document.createElement('div'); cell.className='cell';
     const url=URL.createObjectURL(p.blob);
     const d=new Date(p.time);
-    cell.innerHTML=`<img src="${url}" /><div class="cap">${esc(p.stage)} · ${esc(p.item)}<br>${pad(d.getMonth()+1)}-${pad(d.getDate())} ${pad(d.getHours())}:${pad(d.getMinutes())}</div>`;
+    cell.innerHTML=`<img src="${url}" /><div class="cap">${esc(p.sampleNo||'')} ${esc(p.stage)} · ${esc(p.item)}<br>${pad(d.getMonth()+1)}-${pad(d.getDate())} ${pad(d.getHours())}:${pad(d.getMinutes())}</div>`;
     cell.querySelector('img').onclick=()=>shareOne(p);
     grid.appendChild(cell);
   });
@@ -332,11 +396,107 @@ function applyScan(s){
   if(s.note) document.getElementById('f_note').value=s.note;
 }
 
+/* ---------- PC 연동: 엑셀/CSV 불러오기 ---------- */
+const CSV_HEADERS = ['접수번호','CSI접수번호','공사명','시료명','비고'];
+
+function downloadTemplate(){
+  const rows = [
+    CSV_HEADERS.join(','),
+    'M253-00-00000,AC-0000-000000,신청서 참고,신청서 참고,시료번호 등 입력'
+  ].join('\r\n');
+  // 엑셀에서 한글이 깨지지 않도록 BOM 추가
+  const blob = new Blob(['\uFEFF'+rows], {type:'text/csv;charset=utf-8'});
+  downloadBlob(blob, '시험정보_접수건_양식.csv');
+  toast('양식을 받았어요. 엑셀로 열어 입력하세요');
+}
+
+document.getElementById('csvInput').addEventListener('change', async e=>{
+  const file = e.target.files && e.target.files[0];
+  e.target.value='';
+  if(!file) return;
+  try{
+    busy('불러오는 중...');
+    const text = await readTextSmart(file);
+    const list = parseCSV(text);
+    if(list.length===0){ toast('불러올 내용이 없습니다. 양식을 확인하세요'); return; }
+    let added=0, updated=0;
+    list.forEach(item=>{
+      if(!item.receiptNo) return;
+      const ex = DATA.receipts.find(x=>x.receiptNo===item.receiptNo);
+      if(ex){ Object.assign(ex,item); updated++; }
+      else { DATA.receipts.unshift({ id:uid(), ...item, count:0 }); added++; }
+    });
+    save(); renderHome();
+    toast(`불러오기 완료 — 새로 ${added}건, 갱신 ${updated}건`);
+  }catch(err){
+    toast('불러오기 실패: '+(err.message||err));
+  }finally{ hideBusy(); }
+});
+
+/* 엑셀에서 저장한 CSV는 한글 인코딩이 UTF-8 또는 CP949(EUC-KR) 일 수 있어 둘 다 시도 */
+async function readTextSmart(file){
+  const buf = await file.arrayBuffer();
+  let t = new TextDecoder('utf-8').decode(buf);
+  if(t.includes('\uFFFD')){                 // 깨진 글자가 있으면 CP949로 재시도
+    try{ t = new TextDecoder('euc-kr').decode(buf); }catch(e){}
+  }
+  return t.replace(/^\uFEFF/,'');
+}
+
+function parseCSV(text){
+  const rows = splitCSVRows(text);
+  if(rows.length===0) return [];
+  // 헤더 위치 찾기 (없으면 첫 줄부터 데이터로 간주)
+  let start=0, map={receiptNo:0, csiNo:1, workName:2, sampleName:3, note:4};
+  const head = rows[0].map(c=>c.replace(/\s/g,''));
+  if(head.some(c=>c.includes('접수번호'))){
+    start=1;
+    map = {
+      receiptNo: head.findIndex(c=>c.includes('접수번호') && !c.includes('CSI')),
+      csiNo:     head.findIndex(c=>c.includes('CSI')),
+      workName:  head.findIndex(c=>c.includes('공사')),
+      sampleName:head.findIndex(c=>c.includes('시료명')),
+      note:      head.findIndex(c=>c.includes('비고'))
+    };
+  }
+  const out=[];
+  for(let i=start;i<rows.length;i++){
+    const c=rows[i];
+    if(!c || c.every(x=>!x.trim())) continue;
+    const get=k=> (map[k]>=0 && c[map[k]]!=null) ? String(c[map[k]]).trim() : '';
+    const item={ receiptNo:get('receiptNo'), csiNo:get('csiNo'),
+                 workName:get('workName'), sampleName:get('sampleName'), note:get('note') };
+    if(item.receiptNo) out.push(item);
+  }
+  return out;
+}
+
+/* 따옴표(") 안의 쉼표까지 처리하는 CSV 파서 */
+function splitCSVRows(text){
+  const rows=[]; let row=[], cell='', q=false;
+  for(let i=0;i<text.length;i++){
+    const ch=text[i];
+    if(q){
+      if(ch==='"'){ if(text[i+1]==='"'){ cell+='"'; i++; } else q=false; }
+      else cell+=ch;
+    } else {
+      if(ch==='"') q=true;
+      else if(ch===','){ row.push(cell); cell=''; }
+      else if(ch==='\n'){ row.push(cell); rows.push(row); row=[]; cell=''; }
+      else if(ch==='\r'){ /* skip */ }
+      else cell+=ch;
+    }
+  }
+  if(cell.length>0 || row.length>0){ row.push(cell); rows.push(row); }
+  return rows;
+}
+
 /* ---------- 이벤트 바인딩 ---------- */
 document.querySelectorAll('#stageSeg button').forEach(b=>{
   b.onclick=()=>{ document.querySelectorAll('#stageSeg button').forEach(x=>x.classList.remove('on')); b.classList.add('on'); updateOverlay(); };
 });
 document.getElementById('itemSelect').addEventListener('change', updateOverlay);
+document.getElementById('sampleNoInput').addEventListener('input', updateOverlay);
 document.getElementById('newItemInput').addEventListener('keydown', e=>{ if(e.key==='Enter') addItem(); });
 document.getElementById('modalItemInput').addEventListener('keydown', e=>{ if(e.key==='Enter') confirmAddItem(); });
 
