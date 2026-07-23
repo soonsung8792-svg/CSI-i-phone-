@@ -137,11 +137,18 @@ function addItem(){
 /* ---------- CAMERA ---------- */
 let stream=null;
 function currentStage(){ const b=document.querySelector('#stageSeg button.on'); return b?b.dataset.stage:'시험전'; }
+/* 이 접수건에 지정된 시험항목이 있으면 그것만, 없으면 전체 목록 */
+function itemsForCurrent(){
+  const r=getReceipt(currentReceiptId);
+  if(r && Array.isArray(r.items) && r.items.length) return r.items;
+  return DATA.testItems;
+}
 function populateItemSelect(sel){
   const s=document.getElementById('itemSelect'); s.innerHTML='';
-  if(DATA.testItems.length===0){ const o=document.createElement('option'); o.value=''; o.textContent='(＋로 추가)'; s.appendChild(o); return; }
-  DATA.testItems.forEach(n=>{ const o=document.createElement('option'); o.value=n; o.textContent=n; s.appendChild(o); });
-  if(sel && DATA.testItems.includes(sel)) s.value=sel;
+  const list=itemsForCurrent();
+  if(list.length===0){ const o=document.createElement('option'); o.value=''; o.textContent='(＋로 추가)'; s.appendChild(o); return; }
+  list.forEach(n=>{ const o=document.createElement('option'); o.value=n; o.textContent=n; s.appendChild(o); });
+  if(sel && list.includes(sel)) s.value=sel;
 }
 function addItemInline(){
   const inp=document.getElementById('modalItemInput');
@@ -155,7 +162,11 @@ function confirmAddItem(){
   const name=(inp.value||'').trim();
   closeAddItem();
   if(!name) return;
-  if(!DATA.testItems.includes(name)){ DATA.testItems.push(name); save(); }
+  const r=getReceipt(currentReceiptId);
+  // 이 접수건 전용 목록이 있으면 거기에도 추가
+  if(r && Array.isArray(r.items) && r.items.length && !r.items.includes(name)) r.items.push(name);
+  if(!DATA.testItems.includes(name)) DATA.testItems.push(name);
+  save();
   populateItemSelect(name); updateOverlay();
 }
 async function enterCamera(){
@@ -396,13 +407,19 @@ function applyScan(s){
   if(s.note) document.getElementById('f_note').value=s.note;
 }
 
+/* "치수;인장강도;비중" 또는 "치수,인장강도" 를 배열로 */
+function splitItems(text){
+  if(!text) return [];
+  return text.split(/[;,\/·|]/).map(s=>s.trim()).filter(Boolean);
+}
+
 /* ---------- PC 연동: 엑셀/CSV 불러오기 ---------- */
-const CSV_HEADERS = ['접수번호','CSI접수번호','공사명','시료명','비고'];
+const CSV_HEADERS = ['접수번호','CSI접수번호','공사명','시료명','비고','시험항목'];
 
 function downloadTemplate(){
   const rows = [
     CSV_HEADERS.join(','),
-    'M253-00-00000,AC-0000-000000,신청서 참고,신청서 참고,시료번호 등 입력'
+    'M253-00-00000,AC-0000-000000,신청서 참고,신청서 참고,시료번호 등 입력,"치수;인장강도;비중;두께"'
   ].join('\r\n');
   // 엑셀에서 한글이 깨지지 않도록 BOM 추가
   const blob = new Blob(['\uFEFF'+rows], {type:'text/csv;charset=utf-8'});
@@ -419,15 +436,21 @@ document.getElementById('csvInput').addEventListener('change', async e=>{
     const text = await readTextSmart(file);
     const list = parseCSV(text);
     if(list.length===0){ toast('불러올 내용이 없습니다. 양식을 확인하세요'); return; }
-    let added=0, updated=0;
+    let added=0, updated=0, newItems=0;
     list.forEach(item=>{
       if(!item.receiptNo) return;
+      // 시험항목은 전체 목록(재사용 풀)에도 모아둠
+      (item.items||[]).forEach(n=>{
+        if(!DATA.testItems.includes(n)){ DATA.testItems.push(n); newItems++; }
+      });
       const ex = DATA.receipts.find(x=>x.receiptNo===item.receiptNo);
       if(ex){ Object.assign(ex,item); updated++; }
       else { DATA.receipts.unshift({ id:uid(), ...item, count:0 }); added++; }
     });
     save(); renderHome();
-    toast(`불러오기 완료 — 새로 ${added}건, 갱신 ${updated}건`);
+    let msg=`불러오기 완료 — 새로 ${added}건, 갱신 ${updated}건`;
+    if(newItems>0) msg+=`, 시험항목 ${newItems}개`;
+    toast(msg);
   }catch(err){
     toast('불러오기 실패: '+(err.message||err));
   }finally{ hideBusy(); }
@@ -447,7 +470,7 @@ function parseCSV(text){
   const rows = splitCSVRows(text);
   if(rows.length===0) return [];
   // 헤더 위치 찾기 (없으면 첫 줄부터 데이터로 간주)
-  let start=0, map={receiptNo:0, csiNo:1, workName:2, sampleName:3, note:4};
+  let start=0, map={receiptNo:0, csiNo:1, workName:2, sampleName:3, note:4, items:5};
   const head = rows[0].map(c=>c.replace(/\s/g,''));
   if(head.some(c=>c.includes('접수번호'))){
     start=1;
@@ -456,7 +479,8 @@ function parseCSV(text){
       csiNo:     head.findIndex(c=>c.includes('CSI')),
       workName:  head.findIndex(c=>c.includes('공사')),
       sampleName:head.findIndex(c=>c.includes('시료명')),
-      note:      head.findIndex(c=>c.includes('비고'))
+      note:      head.findIndex(c=>c.includes('비고')),
+      items:     head.findIndex(c=>c.includes('시험항목'))
     };
   }
   const out=[];
@@ -465,7 +489,8 @@ function parseCSV(text){
     if(!c || c.every(x=>!x.trim())) continue;
     const get=k=> (map[k]>=0 && c[map[k]]!=null) ? String(c[map[k]]).trim() : '';
     const item={ receiptNo:get('receiptNo'), csiNo:get('csiNo'),
-                 workName:get('workName'), sampleName:get('sampleName'), note:get('note') };
+                 workName:get('workName'), sampleName:get('sampleName'), note:get('note'),
+                 items:splitItems(get('items')) };
     if(item.receiptNo) out.push(item);
   }
   return out;
