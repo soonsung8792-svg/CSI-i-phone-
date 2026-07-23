@@ -66,11 +66,50 @@ function renderHome(){
     const el=document.createElement('div'); el.className='list-item';
     el.innerHTML=`<div class="grow"><div class="title">${esc(r.receiptNo||'(접수번호 없음)')}</div>
       <div class="sub">${esc(sub)}</div></div><span class="badge">${r.count||0}장</span>`;
-    el.onclick=()=>editReceipt(r.id);
+    el.querySelector('.grow').onclick=()=>editReceipt(r.id);
+    el.querySelector('.badge').onclick=()=>editReceipt(r.id);
+    const del=document.createElement('button');
+    del.className='iconbtn'; del.textContent='🗑';
+    del.onclick=(e)=>{ e.stopPropagation(); askDeleteReceipt(r.id); };
+    el.appendChild(del);
     box.appendChild(el);
   });
 }
 function esc(s){ return (s||'').replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c])); }
+
+/* ---------- 접수건 삭제 ---------- */
+let _delId=null;
+function askDeleteReceipt(id){
+  const r=getReceipt(id); if(!r) return;
+  _delId=id;
+  document.getElementById('delText').innerHTML =
+    `<b>${esc(r.receiptNo||'(접수번호 없음)')}</b> 접수건을 삭제할까요?<br>` +
+    `이 접수건에 저장된 사진 <b>${r.count||0}장</b>도 앱에서 함께 지워집니다.<br>` +
+    `<span style="color:#666">(이미 ‘사진 앱에 저장’한 사진은 폰에 그대로 남아요)</span>`;
+  document.getElementById('delModal').style.display='flex';
+}
+function closeDelete(){ document.getElementById('delModal').style.display='none'; _delId=null; }
+async function confirmDeleteReceipt(){
+  const id=_delId; closeDelete();
+  if(!id) return;
+  try{
+    await idbDeleteByReceipt(id);                 // 사진 정리
+    DATA.receipts = DATA.receipts.filter(x=>x.id!==id);
+    if(currentReceiptId===id) currentReceiptId=null;
+    save(); renderHome(); go('home');
+    toast('삭제되었습니다');
+  }catch(e){ toast('삭제 실패: '+(e.message||e)); }
+}
+async function idbDeleteByReceipt(rid){
+  const db=await idb();
+  return new Promise((res,rej)=>{
+    const tx=db.transaction('photos','readwrite');
+    const idx=tx.objectStore('photos').index('receiptId');
+    const rq=idx.openCursor(IDBKeyRange.only(rid));
+    rq.onsuccess=e=>{ const c=e.target.result; if(c){ c.delete(); c.continue(); } };
+    tx.oncomplete=()=>res(); tx.onerror=()=>rej(tx.error);
+  });
+}
 
 /* ---------- RECEIPT FORM ---------- */
 let currentReceiptId=null, editing=false;
@@ -85,6 +124,7 @@ function newReceipt(){
   currentReceiptId=null; editing=false;
   document.getElementById('receiptTitle').textContent='새 접수건';
   document.getElementById('btnGallery').style.display='none';
+  document.getElementById('btnDelete').style.display='none';
   fillForm(null); go('receipt');
 }
 function editReceipt(id){
@@ -92,6 +132,7 @@ function editReceipt(id){
   currentReceiptId=id; editing=true;
   document.getElementById('receiptTitle').textContent='접수건 정보 (이어찍기)';
   document.getElementById('btnGallery').style.display='block';
+  document.getElementById('btnDelete').style.display='block';
   fillForm(r); go('receipt');
 }
 function readForm(){
@@ -111,6 +152,7 @@ function persistForm(){
   else { r={ id:uid(), ...f, count:0 }; DATA.receipts.unshift(r); currentReceiptId=r.id; }
   save();
   document.getElementById('btnGallery').style.display='block';
+  document.getElementById('btnDelete').style.display='block';
   return r;
 }
 function saveOnly(){ if(persistForm()){ toast('저장되었습니다'); renderHome(); go('home'); } }
